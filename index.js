@@ -1,16 +1,14 @@
 const express = require('express');
-const { Configuration, OpenAIApi } = require("openai");
+const { OpenAI } = require("openai");
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Configure OpenAI API
-const configuration = new Configuration({
-    apiKey: process.env.OPENAI_API_KEY,
+const openai = new OpenAI({
+    organization: process.env.OPENAI_ORG_ID,
+    project: process.env.OPEN_AI_PROJECT_ID,
 });
-
-const openai = new OpenAIApi(configuration);
 
 // Middleware
 app.use(express.json()); // to parse JSON request bodies
