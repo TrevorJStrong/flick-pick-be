@@ -42,11 +42,15 @@ app.use(express.json()); // to parse JSON request bodies
 //     }
 // });
 
+app.get('/', (req, res) => {
+    res.send('Hello from the NFL app!'); // Or any other response you want
+});
+
 app.post('/api/generate/nfl-players', async (req, res) => {
     try {
         const response = await anthropic.messages.create({
-            model: "claude-3-5-sonnet-20241022", // Or another Claude model
-            max_tokens: 1500, // Adjust as needed (likely higher for JSON)
+            model: "claude-3-5-sonnet-", // Or another Claude model
+            max_tokens: 1024, // Adjust as needed (likely higher for JSON)
             temperature: 0,      // Set to 0 for more deterministic/JSON-like output
             messages: [
                 {
