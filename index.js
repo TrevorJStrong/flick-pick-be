@@ -1,101 +1,104 @@
 const express = require('express');
-// const { OpenAI } = require("openai");
-const { Anthropic } = require("@anthropic-ai/sdk");
+const { OpenAI } = require("openai");
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-const anthropic = new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY
+const openai = new OpenAI({
+    organization: process.env.OPENAI_ORG_ID,
+    project: process.env.OPEN_AI_PROJECT_ID,
+    apiKey: process.env.OPENAI_API_KEY
 });
-
-// const openai = new OpenAI({
-//     organization: process.env.OPENAI_ORG_ID,
-//     project: process.env.OPEN_AI_PROJECT_ID,
-// });
 
 // Middleware
 app.use(express.json()); // to parse JSON request bodies
 
 // API Route
-// app.post('/api/generate', async (req, res) => {
-//     try {
-//         const response = await openai.createCompletion({
-//             model: "text-davinci-003",
-//             prompt: `Provide data for 3 current NFL quarterbacks in JSON format, including their name, team, position, recent performance stats (last 3 games), and a short description of their playing style.`, 
-//             max_tokens: 500, // Adjust as needed
-//         });
-
-//         // Parse the JSON response from OpenAI
-//         const players = JSON.parse(response.data.choices[0].text.trim()); 
-
-//         res.json(players); 
-//         } catch (error) {
-//             console.error(error);
-//             // Handle cases where JSON parsing fails
-//         if (error instanceof SyntaxError) { 
-//             res.status(500).json({ error: 'Invalid JSON response from OpenAI' });
-//         } else {
-//             res.status(500).json({ error: 'An error occurred' });
-//         }
-//     }
-// });
-
-app.get('/', (req, res) => {
-    res.send('Hello from the NFL app!'); // Or any other response you want
-});
-
 app.post('/api/generate/nfl-players', async (req, res) => {
     try {
-        const response = await anthropic.messages.create({
-            model: "claude-3-5-sonnet-", // Or another Claude model
-            max_tokens: 1024, // Adjust as needed (likely higher for JSON)
-            temperature: 0,      // Set to 0 for more deterministic/JSON-like output
-            messages: [
-                {
-                "role": "user",
-                "content": [
-                    {
-                    "type": "text",
-                    "text": `Provide data for 3 current NFL quarterbacks in JSON format, including their name, team, position, recent performance stats (last 3 games), and a short description of their playing style.  Please ensure the JSON is valid and parsable.  Here's an example of the structure I'd like:
-                    \`\`\`json
-                    [
-                        {
-                        "name": "Patrick Mahomes",
-                        "team": "Kansas City Chiefs",
-                        "position": "QB",
-                        "stats": {
-                            "passingYards": 1200, 
-                            "touchdowns": 10, 
-                            "interceptions": 2 
-                        },
-                        "description": "A highly mobile quarterback with a strong arm..." 
-                        },
-                        // ... two more players
-                    ]
-                    \`\`\`` // Using backticks for clear JSON example in prompt
-                    }
-                ]}
-            ]
+        // Get prompt from request body
+        const { prompt } = req.body;
+
+        const response = await openai.completions.create({
+            body: {
+                model: 'gpt-4o-mini',
+                prompt: prompt || 'Provide data for 3 current NFL quarterbacks in JSON format, including their name, team, position, recent performance stats, and a short description of their playing style. For each player, include an image URL that is currently accessible and does not result in a 404 error. Prioritize image URLs from official team websites or reputable sports news sources like ESPN or NFL.com. The images should be in JPEG or PNG format and clearly show the players face, suitable for display in a user interface. Please verify that the provided image URLs are currently accessible before including them in the response',
+                max_tokens: 200,
+            }
         });
 
-        // Attempt to parse the JSON response
-        try {
-            const players = JSON.parse(response.content[0].text);
-            res.json(players); 
-        } catch (jsonError) {
-            console.error("Error parsing JSON:", jsonError);
-            console.error("Raw response from Claude:", response.content[0].text); // Log the raw response for debugging
-            return null; // Or throw the error if you want to handle it further up
-        }
+        // Validate and process the response data
+        const players = validateAndProcessResponse(response.data);
 
+        res.json(players);
     } catch (error) {
-        console.error("Error calling Anthropic API:", error);
-        return null; // Or throw the error
+        console.error(error);
+        // Handle different types of errors with more specific messages
+        if (error instanceof SyntaxError) {
+            res.status(500).json({ error: 'Invalid JSON response from OpenAI' });
+        } else if (error.response && error.response.status === 429) {
+            res.status(429).json({ error: 'OpenAI API rate limit exceeded' });
+        } else {
+            res.status(500).json({ error: 'An error occurred while processing the request' });
+        }
     }
 });
-  
+
+function validateAndProcessResponse(data) {
+    if (!data || !data.choices || !data.choices[0] || !data.choices[0].text) {
+        throw new Error('Invalid response structure from OpenAI API');
+    }
+
+    try {
+        const players = JSON.parse(data.choices[0].text.trim());
+
+        if (!Array.isArray(players)) {
+            throw new Error('Expected an array of players from OpenAI API');
+        }
+
+        players.forEach((player, index) => {
+            // Validate each player object
+            if (
+                !player.name ||
+                !player.team ||
+                !player.position ||
+                !player.recent_performance_stats ||
+                !player.playing_style ||
+                !player.image_url
+            ) {
+                throw new Error(`Player ${index + 1} is missing required fields`);
+            }
+
+            // Validate recent_performance_stats
+            if (
+                !player.recent_performance_stats.games_played ||
+                !player.recent_performance_stats.passing_yards ||
+                !player.recent_performance_stats.touchdowns ||
+                !player.recent_performance_stats.interceptions
+            ) {
+                throw new Error(`Player ${index + 1} recent_performance_stats are missing required fields`);
+            }
+
+            // Validate image_url (basic URL check)
+            try {
+                new URL(player.image_url);
+            } catch (error) {
+                throw new Error(`Player ${index + 1} image_url is not a valid URL`);
+            }
+        });
+
+        return players; // Return the validated players array
+
+    } catch (error) {
+        // Re-throw the error for the API route to handle
+        throw error;
+    }
+};
+
+app.get('/api/test', (req, res) => {
+    res.send('API test successful!');
+  });
 
 app.listen(port, () => {
     console.log(`Server listening on port ${port}`);
