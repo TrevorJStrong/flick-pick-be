@@ -1,5 +1,6 @@
 const express = require('express');
 const { OpenAI } = require("openai");
+const mongoose = require('mongoose');
 require('dotenv').config();
 
 const app = express();
@@ -11,6 +12,15 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY
 });
 
+// mongoose connection
+mongoose.Promise = global.Promise;
+mongoose
+    .connect(process.env.MONGODB_URI, {
+        useNewUrlParser: true
+    })
+    .then(() => console.log("MongoDB connection established successfully"))
+    .catch(err => console.log(err));
+
 // Middleware
 app.use(express.json());
 
@@ -19,14 +29,11 @@ app.post('/api/generate/nfl-players', async (req, res) => {
     try {
         const response = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
-            messages: [{ role: 'user', content: 'Provide data for 3 current NFL quarterbacks in JSON format, including their name, team, position. For each player, include an image URL that is currently accessible and does not result in a 404 error. Prioritize image URLs from official team websites or reputable sports news sources like ESPN or NFL.com. The images should be in JPEG or PNG format and clearly show the player\'s face, suitable for display in a user interface. Please verify that the provided image URLs are currently accessible before including them in the response. Ensure the response is valid JSON that can be parsed by `JSON.parse()`. Do not include any text outside of the JSON object.' }],
+            messages: [{ role: 'user', content: 'Provide data for 3 current NFL quarterbacks in a JSON array format, with just a name property and nothing else inside the object. Ensure the response is valid JSON that can be parsed by JSON.parse(). Do not include any text outside of the JSON object.' }],
             max_tokens: 250,
         });
 
-        console.log(response);
-
-        let content = response.choices[0].message.content.trim(); // Trim whitespace
-        console.log("OpenAI Response:", content); // Log the response
+        let content = response.choices[0].message.content.trim();
 
         // Remove Markdown code block markers
         if (content.startsWith('```json')) {
@@ -35,16 +42,34 @@ app.post('/api/generate/nfl-players', async (req, res) => {
 
         const players = JSON.parse(content);
 
-        res.json(players);
+        const playerData = await Promise.all(players.map(async (player) => {
+            try {
+                const searchResponse = await fetch(`https://www.thesportsdb.com/api/v1/json/3/searchplayers.php?p=${player.name}`);
+                const data = await searchResponse.json();
+
+                if (data.player && data.player[0]) {
+                    const playerObj = {
+                        name: player.name,
+                        team: data.player[0].strTeam,
+                        position: data.player[0].strPosition,
+                        image_url: data.player[0].strCutout,
+                    };
+                    return playerObj;
+                } else {
+                    return { name: player.name, error: "Player not found in sports DB" };
+                }
+            } catch (error) {
+                console.error(error);
+                return { name: player.name, error: error.message };
+            }
+        }));
+
+        res.json(playerData);
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: error.message }); // Send the error message
     }
 });
-
-app.get('/api/test', (req, res) => {
-    res.send('API test successful!');
-  });
 
 app.listen(port, () => {
     console.log(`Server listening on port ${port}`);
