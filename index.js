@@ -25,11 +25,11 @@ mongoose
 app.use(express.json());
 
 // API Route
-app.post('/api/generate/nfl-players', async (req, res) => {
+app.post('/api/generate/movies', async (req, res) => {
     try {
         const response = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
-            messages: [{ role: 'user', content: 'Provide data for 3 current NFL quarterbacks in a JSON array format, with just a name property and nothing else inside the object. Ensure the response is valid JSON that can be parsed by JSON.parse(). Do not include any text outside of the JSON object.' }],
+            messages: [{ role: 'user', content: 'Provide data for 3 movies in a JSON array format, with just a name property and nothing else inside the object. Ensure the response is valid JSON that can be parsed by JSON.parse(). Do not include any text outside of the JSON object.' }],
             max_tokens: 250,
         });
 
@@ -40,31 +40,31 @@ app.post('/api/generate/nfl-players', async (req, res) => {
             content = content.substring(7, content.length - 3).trim();
         }
 
-        const players = JSON.parse(content);
+        const movies = JSON.parse(content);
 
-        const playerData = await Promise.all(players.map(async (player) => {
+        const movieData = await Promise.all(movies.map(async (movie) => {
             try {
-                const searchResponse = await fetch(`https://www.thesportsdb.com/api/v1/json/3/searchplayers.php?p=${player.name}`);
+                const searchResponse = await fetch(`https://www.omdbapi.com/?apikey=${process.env.OMDB_API_KEY}&t=${movie.name}`);
                 const data = await searchResponse.json();
 
-                if (data.player && data.player[0]) {
-                    const playerObj = {
-                        name: player.name,
-                        team: data.player[0].strTeam,
-                        position: data.player[0].strPosition,
-                        image_url: data.player[0].strCutout,
+                if (data) {
+                    const movieObj = {
+                        title: data.Title,
+                        year: data.Year,
+                        genre: data.Genre,
+                        poster: data.Poster,
                     };
-                    return playerObj;
+                    return movieObj;
                 } else {
-                    return { name: player.name, error: "Player not found in sports DB" };
+                    return { name: movie.Title, error: "Movie not found in OMDB" };
                 }
             } catch (error) {
                 console.error(error);
-                return { name: player.name, error: error.message };
+                return { name: movie.Title, error: error.message };
             }
         }));
 
-        res.json(playerData);
+        res.json(movieData);
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: error.message }); // Send the error message
